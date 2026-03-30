@@ -85,6 +85,7 @@ class AuraBot(discord.Client):
         self,
         database: AuraDatabase,
         sync_guild_id: int | None,
+        aura_rebuild_allowed_user_id: int | None,
         rebuild_pause_every: int,
         rebuild_pause_seconds: float,
         rebuild_progress_every: int,
@@ -99,6 +100,7 @@ class AuraBot(discord.Client):
         self.database = database
         self.tree = app_commands.CommandTree(self)
         self.sync_guild_id = sync_guild_id
+        self.aura_rebuild_allowed_user_id = aura_rebuild_allowed_user_id
         self.rebuild_pause_every = max(1, rebuild_pause_every)
         self.rebuild_pause_seconds = max(0.0, rebuild_pause_seconds)
         self.rebuild_progress_every = max(1, rebuild_progress_every)
@@ -268,6 +270,16 @@ class AuraBot(discord.Client):
             if interaction.guild is None:
                 await interaction.response.send_message(
                     "Cette commande doit etre utilisee dans un serveur.",
+                    ephemeral=True,
+                )
+                return
+
+            if (
+                self.aura_rebuild_allowed_user_id is not None
+                and interaction.user.id != self.aura_rebuild_allowed_user_id
+            ):
+                await interaction.response.send_message(
+                    "Tu n'es pas autorise a utiliser cette commande.",
                     ephemeral=True,
                 )
                 return
@@ -597,6 +609,7 @@ def main() -> None:
     bot = AuraBot(
         database=database,
         sync_guild_id=settings.command_sync_guild_id,
+        aura_rebuild_allowed_user_id=settings.aura_rebuild_allowed_user_id,
         rebuild_pause_every=settings.rebuild_pause_every,
         rebuild_pause_seconds=settings.rebuild_pause_seconds,
         rebuild_progress_every=settings.rebuild_progress_every,

@@ -15,6 +15,7 @@ class Settings:
     database_path: Path
     log_level: str
     command_sync_guild_id: int | None
+    aura_rebuild_allowed_user_id: int | None
     rebuild_pause_every: int
     rebuild_pause_seconds: float
     rebuild_progress_every: int
@@ -30,6 +31,8 @@ def load_settings() -> Settings:
     log_level = os.getenv("LOG_LEVEL", "INFO").upper()
     guild_raw = os.getenv("COMMAND_SYNC_GUILD_ID", "").strip()
     command_sync_guild_id = int(guild_raw) if guild_raw else None
+    allowed_user_raw = os.getenv("AURA_REBUILD_ALLOWED_USER_ID", "").strip()
+    aura_rebuild_allowed_user_id = int(allowed_user_raw) if allowed_user_raw else None
     rebuild_pause_every = int(os.getenv("REBUILD_PAUSE_EVERY", "50"))
     rebuild_pause_seconds = float(os.getenv("REBUILD_PAUSE_SECONDS", "0.75"))
     rebuild_progress_every = int(os.getenv("REBUILD_PROGRESS_EVERY", "100"))
@@ -39,6 +42,7 @@ def load_settings() -> Settings:
         database_path=database_path,
         log_level=log_level,
         command_sync_guild_id=command_sync_guild_id,
+        aura_rebuild_allowed_user_id=aura_rebuild_allowed_user_id,
         rebuild_pause_every=rebuild_pause_every,
         rebuild_pause_seconds=rebuild_pause_seconds,
         rebuild_progress_every=rebuild_progress_every,

@@ -32,6 +32,7 @@ Tu peux aussi limiter le scan avec `day`, `month` et `year` si tu veux repartir 
 
 - `DISCORD_TOKEN` : token du bot Discord
 - `COMMAND_SYNC_GUILD_ID` : optionnel, ID du serveur pour synchroniser instantanement les slash commands pendant le dev. Le bot doit deja etre present sur ce serveur.
+- `AURA_REBUILD_ALLOWED_USER_ID` : optionnel, ID Discord autorise a utiliser `/aura_rebuild`
 - `DATABASE_PATH` : chemin SQLite, par defaut `data/aura.sqlite3`
 - `LOG_LEVEL` : niveau de logs, par defaut `INFO`
 - `REBUILD_PAUSE_EVERY` : pause courte tous les N messages pendant `/aura_rebuild`, par defaut `50`
