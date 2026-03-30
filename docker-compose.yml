@@ -1,0 +1,10 @@
+services:
+  aura-bot:
+    build:
+      context: .
+    container_name: aura-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
