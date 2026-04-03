@@ -469,8 +469,7 @@ class AuraBot(discord.Client):
                 f"https://discord.com/channels/{row.guild_id}/{row.channel_id}/{row.message_id}"
             )
             candidate_lines = [
-                f"{medal_for_rank(rank)} {row.reaction_points} {self.reaction_emoji(rank)} <@{row.author_id}>",
-                f"[Voir]({jump_url})",
+                f"{medal_for_rank(rank)} {row.reaction_points} {self.reaction_emoji(rank)} <@{row.author_id}> [Voir]({jump_url})",
             ]
             candidate_text = "\n".join([*lines, *candidate_lines])
             if len(candidate_text) > 1000:
