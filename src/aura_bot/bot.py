@@ -37,7 +37,7 @@ def medal_for_rank(rank: int) -> str:
 
 class YearSelectorView(discord.ui.View):
     def __init__(self, bot: "AuraBot", guild: discord.Guild | None, guild_id: int) -> None:
-        super().__init__(timeout=600)
+        super().__init__(timeout=604800)
         self.bot = bot
         self.guild = guild
         self.guild_id = guild_id
