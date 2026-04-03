@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 import aiosqlite
+import discord
 
 
 @dataclass(slots=True)
@@ -93,6 +95,13 @@ class AuraDatabase:
     async def fetchall(self, query: str, params: tuple[object, ...]) -> list[aiosqlite.Row]:
         async with self.connection.execute(query, params) as cursor:
             return await cursor.fetchall()
+
+    def year_bounds(self, year: int) -> tuple[int, int]:
+        start = datetime(year, 1, 1, tzinfo=timezone.utc)
+        end = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+        start_id = discord.utils.time_snowflake(start)
+        end_id = discord.utils.time_snowflake(end)
+        return start_id, end_id
 
     async def ensure_message(
         self,
@@ -522,6 +531,29 @@ class AuraDatabase:
         )
         return [AuraEntry(user_id=row["user_id"], score=row["score"]) for row in rows]
 
+    async def top_aura_for_year(
+        self,
+        guild_id: int,
+        year: int,
+        limit: int = 10,
+    ) -> list[AuraEntry]:
+        start_id, end_id = self.year_bounds(year)
+        rows = await self.fetchall(
+            """
+            SELECT author_id AS user_id, SUM(reaction_points) AS score
+            FROM messages
+            WHERE guild_id = ?
+              AND message_id >= ?
+              AND message_id < ?
+              AND reaction_points > 0
+            GROUP BY author_id
+            ORDER BY score DESC, user_id ASC
+            LIMIT ?
+            """,
+            (guild_id, start_id, end_id, limit),
+        )
+        return [AuraEntry(user_id=row["user_id"], score=row["score"]) for row in rows]
+
     async def top_aura_average(self, guild_id: int, limit: int = 10) -> list[AuraAverageEntry]:
         rows = await self.fetchall(
             """
@@ -559,6 +591,37 @@ class AuraDatabase:
             LIMIT ?
             """,
             (guild_id, limit),
+        )
+        return [
+            TopMessageEntry(
+                message_id=row["message_id"],
+                guild_id=row["guild_id"],
+                channel_id=row["channel_id"],
+                author_id=row["author_id"],
+                reaction_points=row["reaction_points"],
+            )
+            for row in rows
+        ]
+
+    async def top_messages_for_year(
+        self,
+        guild_id: int,
+        year: int,
+        limit: int = 10,
+    ) -> list[TopMessageEntry]:
+        start_id, end_id = self.year_bounds(year)
+        rows = await self.fetchall(
+            """
+            SELECT message_id, guild_id, channel_id, author_id, reaction_points
+            FROM messages
+            WHERE guild_id = ?
+              AND message_id >= ?
+              AND message_id < ?
+              AND reaction_points > 0
+            ORDER BY reaction_points DESC, message_id ASC
+            LIMIT ?
+            """,
+            (guild_id, start_id, end_id, limit),
         )
         return [
             TopMessageEntry(

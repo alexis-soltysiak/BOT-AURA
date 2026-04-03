@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from datetime import datetime
 import asyncio
 import logging
 from collections.abc import Iterable
+from datetime import datetime
 
 import discord
 from discord import app_commands
 
 from aura_bot.config import build_rebuild_start_date, configure_logging, load_settings
-from aura_bot.database import AuraAverageEntry, AuraDatabase, AuraEntry, TopMessageEntry
+from aura_bot.database import AuraDatabase, AuraEntry, TopMessageEntry
 
 LOGGER = logging.getLogger("aura_bot")
 
@@ -30,46 +30,72 @@ def pluralize_reactions(value: int) -> str:
     return f"{value} {suffix}"
 
 
-class AuraRankingView(discord.ui.View):
+def medal_for_rank(rank: int) -> str:
+    medals = {1: "🥇", 2: "🥈", 3: "🥉"}
+    return medals.get(rank, f"`#{rank}`")
+
+
+class YearSelectorView(discord.ui.View):
     def __init__(self, bot: "AuraBot", guild: discord.Guild | None, guild_id: int) -> None:
         super().__init__(timeout=600)
         self.bot = bot
         self.guild = guild
         self.guild_id = guild_id
-        self.mode = "total"
+        self.years = self.bot.available_years()
+        self.selected_year = self.years[0]
         self.update_buttons()
 
     def update_buttons(self) -> None:
-        self.total_button.disabled = self.mode == "total"
-        self.average_button.disabled = self.mode == "average"
+        self.year_one_button.label = str(self.years[0])
+        self.year_two_button.label = str(self.years[1])
+        self.year_three_button.label = str(self.years[2])
+        self.year_one_button.disabled = self.selected_year == self.years[0]
+        self.year_two_button.disabled = self.selected_year == self.years[1]
+        self.year_three_button.disabled = self.selected_year == self.years[2]
+        self.spacer_button.disabled = True
+
+    async def build_embed(self) -> discord.Embed:
+        raise NotImplementedError
 
     async def refresh_message(self, interaction: discord.Interaction) -> None:
-        if self.mode == "total":
-            rows = await self.bot.database.top_aura(self.guild_id, limit=10)
-            embed = self.bot.build_aura_embed(self.guild, rows)
-        else:
-            rows = await self.bot.database.top_aura_average(self.guild_id, limit=10)
-            embed = self.bot.build_aura_average_embed(self.guild, rows)
+        embed = await self.build_embed()
         self.update_buttons()
         await interaction.response.edit_message(embed=embed, view=self)
 
-    @discord.ui.button(label="Classement total", style=discord.ButtonStyle.primary)
-    async def total_button(
+    @discord.ui.button(label="2026", style=discord.ButtonStyle.primary)
+    async def year_one_button(
         self,
         interaction: discord.Interaction,
         button: discord.ui.Button,
     ) -> None:
-        self.mode = "total"
+        self.selected_year = self.years[0]
         await self.refresh_message(interaction)
 
-    @discord.ui.button(label="Aura / message", style=discord.ButtonStyle.secondary)
-    async def average_button(
+    @discord.ui.button(label="2025", style=discord.ButtonStyle.secondary)
+    async def year_two_button(
         self,
         interaction: discord.Interaction,
         button: discord.ui.Button,
     ) -> None:
-        self.mode = "average"
+        self.selected_year = self.years[1]
         await self.refresh_message(interaction)
+
+    @discord.ui.button(label="2024", style=discord.ButtonStyle.secondary)
+    async def year_three_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ) -> None:
+        self.selected_year = self.years[2]
+        await self.refresh_message(interaction)
+
+    @discord.ui.button(label="\u200b", style=discord.ButtonStyle.secondary, disabled=True)
+    async def spacer_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ) -> None:
+        await interaction.response.defer()
 
     @discord.ui.button(label="Refresh", style=discord.ButtonStyle.success, emoji="🔄")
     async def refresh_button(
@@ -78,6 +104,26 @@ class AuraRankingView(discord.ui.View):
         button: discord.ui.Button,
     ) -> None:
         await self.refresh_message(interaction)
+
+
+class AuraRankingView(YearSelectorView):
+    async def build_embed(self) -> discord.Embed:
+        rows = await self.bot.database.top_aura_for_year(
+            self.guild_id,
+            year=self.selected_year,
+            limit=10,
+        )
+        return self.bot.build_aura_embed(self.guild, rows, year=self.selected_year)
+
+
+class FakerRankingView(YearSelectorView):
+    async def build_embed(self) -> discord.Embed:
+        rows = await self.bot.database.top_messages_for_year(
+            self.guild_id,
+            year=self.selected_year,
+            limit=10,
+        )
+        return self.bot.build_faker_embed(self.guild, rows, year=self.selected_year)
 
 
 class AuraBot(discord.Client):
@@ -104,6 +150,10 @@ class AuraBot(discord.Client):
         self.rebuild_pause_every = max(1, rebuild_pause_every)
         self.rebuild_pause_seconds = max(0.0, rebuild_pause_seconds)
         self.rebuild_progress_every = max(1, rebuild_progress_every)
+
+    def available_years(self) -> list[int]:
+        current_year = datetime.now().year
+        return [current_year, current_year - 1, current_year - 2]
 
     async def setup_hook(self) -> None:
         await self.database.connect()
@@ -234,12 +284,16 @@ class AuraBot(discord.Client):
                 )
                 return
 
-            rows = await self.database.top_aura(interaction.guild_id, limit=10)
-            embed = self.build_aura_embed(interaction.guild, rows)
+            year = self.available_years()[0]
+            rows = await self.database.top_aura_for_year(interaction.guild_id, year=year, limit=10)
+            embed = self.build_aura_embed(interaction.guild, rows, year=year)
             view = AuraRankingView(self, interaction.guild, interaction.guild_id)
             await interaction.response.send_message(embed=embed, view=view)
 
-        @self.tree.command(name="faker", description="Affiche les 3 messages avec le plus de reactions.")
+        @self.tree.command(
+            name="faker",
+            description="Affiche les 10 messages avec le plus de reactions.",
+        )
         async def faker(interaction: discord.Interaction) -> None:
             if interaction.guild_id is None:
                 await interaction.response.send_message(
@@ -248,9 +302,15 @@ class AuraBot(discord.Client):
                 )
                 return
 
-            rows = await self.database.top_messages(interaction.guild_id, limit=3)
-            embed = self.build_faker_embed(interaction.guild, rows)
-            await interaction.response.send_message(embed=embed)
+            year = self.available_years()[0]
+            rows = await self.database.top_messages_for_year(
+                interaction.guild_id,
+                year=year,
+                limit=10,
+            )
+            embed = self.build_faker_embed(interaction.guild, rows, year=year)
+            view = FakerRankingView(self, interaction.guild, interaction.guild_id)
+            await interaction.response.send_message(embed=embed, view=view)
 
         @self.tree.command(
             name="aura_rebuild",
@@ -314,144 +374,85 @@ class AuraBot(discord.Client):
             )
 
     def build_aura_embed(
-        self, guild: discord.Guild | None, rows: list[AuraEntry]
+        self,
+        guild: discord.Guild | None,
+        rows: list[AuraEntry],
+        *,
+        year: int,
     ) -> discord.Embed:
         embed = discord.Embed(
-            title="Classement AURA",
-            description="Le top des membres qui font reagir le serveur.",
+            title=f"Classement AURA {year}",
+            description=f"Le top des membres qui ont fait reagir le serveur en {year}.",
             color=discord.Color.gold(),
         )
         self.apply_guild_style(embed, guild)
 
         if not rows:
-            embed.description = "Le top des membres qui font reagir le serveur.\n\n✨ Aucun point pour le moment."
+            embed.description = (
+                f"Le top des membres qui ont fait reagir le serveur en {year}.\n\n"
+                "Aucun point pour le moment."
+            )
             return embed
 
         total_points = sum(row.score for row in rows)
         leader = rows[0]
         embed.add_field(
-            name="👑 Leader",
+            name="Leader",
             value=f"<@{leader.user_id}>\n**{pluralize_points(leader.score)}**",
             inline=True,
         )
         embed.add_field(
-            name="🔥 Total",
+            name="Total",
             value=f"**{total_points} points**",
             inline=True,
         )
         embed.add_field(
-            name="📊 Affichage",
+            name="Affichage",
             value=f"Top **{len(rows)}**",
             inline=True,
         )
-
         embed.add_field(
-            name="🏆 Podium",
-            value=self.render_podium(rows[:3]),
+            name="Classement",
+            value=self.render_aura_ranking(rows),
             inline=False,
         )
-
-        remaining = rows[3:10]
-        if remaining:
-            embed.add_field(
-                name="✨ Suite du classement",
-                value=self.render_rank_list(remaining, start_rank=4),
-                inline=False,
-            )
-
         embed.set_footer(text="1 reaction unique d'une personne = 1 point.")
         return embed
 
-    def build_aura_average_embed(
-        self, guild: discord.Guild | None, rows: list[AuraAverageEntry]
-    ) -> discord.Embed:
-        embed = discord.Embed(
-            title="Classement Aura / Message",
-            description="Le top des membres avec le plus de reactions en moyenne par message.",
-            color=discord.Color.orange(),
-        )
-        self.apply_guild_style(embed, guild)
-
-        if not rows:
-            embed.description = (
-                "Le top des membres avec le plus de reactions en moyenne par message.\n\n"
-                "✨ Aucun message analyse pour le moment."
-            )
-            return embed
-
-        leader = rows[0]
-        embed.add_field(
-            name="👑 Leader moyen",
-            value=f"<@{leader.user_id}>\n**{leader.average_score:.2f}** / message",
-            inline=True,
-        )
-        embed.add_field(
-            name="📝 Messages",
-            value=f"**{leader.message_count}**",
-            inline=True,
-        )
-        embed.add_field(
-            name="🔥 Total reactions",
-            value=f"**{leader.score}**",
-            inline=True,
-        )
-
-        embed.add_field(
-            name="🏆 Podium",
-            value=self.render_average_podium(rows[:3]),
-            inline=False,
-        )
-
-        remaining = rows[3:10]
-        if remaining:
-            embed.add_field(
-                name="✨ Suite du classement",
-                value=self.render_average_rank_list(remaining, start_rank=4),
-                inline=False,
-            )
-
-        embed.set_footer(text="Moyenne calculee sur tous les messages suivis du membre.")
-        return embed
-
     def build_faker_embed(
-        self, guild: discord.Guild | None, rows: list[TopMessageEntry]
+        self,
+        guild: discord.Guild | None,
+        rows: list[TopMessageEntry],
+        *,
+        year: int,
     ) -> discord.Embed:
         embed = discord.Embed(
-            title="Top Messages",
-            description="Les messages qui ont le plus fait reagir le serveur.",
+            title=f"Top Messages {year}",
+            description=f"Les messages qui ont le plus fait reagir le serveur en {year}.",
             color=discord.Color.blurple(),
         )
         self.apply_guild_style(embed, guild)
 
         if not rows:
-            embed.description = "Les messages qui ont le plus fait reagir le serveur.\n\n💤 Aucun message classe pour le moment."
+            embed.description = (
+                f"Les messages qui ont le plus fait reagir le serveur en {year}.\n\n"
+                "Aucun message classe pour le moment."
+            )
             return embed
 
         total_reactions = sum(row.reaction_points for row in rows)
-        embed.add_field(name="💬 Messages", value=f"**{len(rows)}**", inline=True)
+        embed.add_field(name="Messages", value=f"**{len(rows)}**", inline=True)
+        embed.add_field(name="Reactions", value=f"**{total_reactions}**", inline=True)
         embed.add_field(
-            name="⚡ Reactions",
-            value=f"**{total_reactions}**",
-            inline=True,
-        )
-        embed.add_field(
-            name="🥇 Record",
+            name="Record",
             value=f"**{pluralize_reactions(rows[0].reaction_points)}**",
             inline=True,
         )
-
-        ranking_names = ["🥇 Premier", "🥈 Deuxieme", "🥉 Troisieme"]
-        for index, row in enumerate(rows):
-            jump_url = f"https://discord.com/channels/{row.guild_id}/{row.channel_id}/{row.message_id}"
-            channel_mention = f"<#{row.channel_id}>"
-            value = (
-                f"👤 <@{row.author_id}>\n"
-                f"📍 {channel_mention}\n"
-                f"✨ `{pluralize_reactions(row.reaction_points)}`\n"
-                f"🔗 [Voir le message]({jump_url})"
-            )
-            embed.add_field(name=ranking_names[index], value=value, inline=False)
-
+        embed.add_field(
+            name="Top 10",
+            value=self.render_faker_ranking(rows),
+            inline=False,
+        )
         embed.set_footer(text="Chaque personne ne compte qu'une fois par message.")
         return embed
 
@@ -464,37 +465,33 @@ class AuraBot(discord.Client):
         else:
             embed.set_author(name=guild.name)
 
-    def render_podium(self, rows: list[AuraEntry]) -> str:
-        icons = ["🥇", "🥈", "🥉"]
-        lines: list[str] = []
-        for index, row in enumerate(rows):
-            lines.append(f"{icons[index]} <@{row.user_id}> • **{row.score}**")
-        return "\n".join(lines) or "\u200b"
-
-    def render_rank_list(self, rows: list[AuraEntry], start_rank: int) -> str:
+    def render_aura_ranking(self, rows: list[AuraEntry]) -> str:
         lines = [
-            f"`#{index}` <@{row.user_id}> • **{row.score}**"
-            for index, row in enumerate(rows, start=start_rank)
+            f"{medal_for_rank(rank)} <@{row.user_id}> - **{row.score}**"
+            for rank, row in enumerate(rows, start=1)
         ]
         return "\n".join(lines) or "\u200b"
 
-    def render_average_podium(self, rows: list[AuraAverageEntry]) -> str:
-        icons = ["🥇", "🥈", "🥉"]
+    def render_faker_ranking(self, rows: list[TopMessageEntry]) -> str:
         lines: list[str] = []
-        for index, row in enumerate(rows):
-            lines.append(
-                f"{icons[index]} <@{row.user_id}> • **{row.average_score:.2f}**/msg • {row.score} total"
+        for rank, row in enumerate(rows, start=1):
+            jump_url = (
+                f"https://discord.com/channels/{row.guild_id}/{row.channel_id}/{row.message_id}"
             )
+            lines.append(
+                f"{medal_for_rank(rank)} {row.reaction_points} {self.reaction_emoji(rank)} <@{row.author_id}>"
+            )
+            lines.append(f"[Voir le message]({jump_url})")
         return "\n".join(lines) or "\u200b"
 
-    def render_average_rank_list(
-        self, rows: list[AuraAverageEntry], start_rank: int
-    ) -> str:
-        lines = [
-            f"`#{index}` <@{row.user_id}> • **{row.average_score:.2f}**/msg • {row.message_count} msg"
-            for index, row in enumerate(rows, start=start_rank)
-        ]
-        return "\n".join(lines) or "\u200b"
+    def reaction_emoji(self, rank: int) -> str:
+        if rank == 1:
+            return "🔥"
+        if rank == 2:
+            return "✨"
+        if rank == 3:
+            return "⚡"
+        return "💬"
 
     async def rebuild_guild_scores(
         self,
