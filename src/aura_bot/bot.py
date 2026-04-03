@@ -121,7 +121,7 @@ class FakerRankingView(YearSelectorView):
         rows = await self.bot.database.top_messages_for_year(
             self.guild_id,
             year=self.selected_year,
-            limit=10,
+            limit=5,
         )
         return self.bot.build_faker_embed(self.guild, rows, year=self.selected_year)
 
@@ -292,7 +292,7 @@ class AuraBot(discord.Client):
 
         @self.tree.command(
             name="faker",
-            description="Affiche les 10 messages avec le plus de reactions.",
+            description="Affiche les 5 messages avec le plus de reactions.",
         )
         async def faker(interaction: discord.Interaction) -> None:
             if interaction.guild_id is None:
@@ -306,7 +306,7 @@ class AuraBot(discord.Client):
             rows = await self.database.top_messages_for_year(
                 interaction.guild_id,
                 year=year,
-                limit=10,
+                limit=5,
             )
             embed = self.build_faker_embed(interaction.guild, rows, year=year)
             view = FakerRankingView(self, interaction.guild, interaction.guild_id)
@@ -449,7 +449,7 @@ class AuraBot(discord.Client):
             inline=True,
         )
         embed.add_field(
-            name="Top 10",
+            name="Top 5",
             value=self.render_faker_ranking(rows),
             inline=False,
         )
