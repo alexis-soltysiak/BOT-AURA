@@ -121,7 +121,7 @@ class FakerRankingView(YearSelectorView):
         rows = await self.bot.database.top_messages_for_year(
             self.guild_id,
             year=self.selected_year,
-            limit=5,
+            limit=10,
         )
         return self.bot.build_faker_embed(self.guild, rows, year=self.selected_year)
 
@@ -292,7 +292,7 @@ class AuraBot(discord.Client):
 
         @self.tree.command(
             name="faker",
-            description="Affiche les 5 messages avec le plus de reactions.",
+            description="Affiche les messages avec le plus de reactions.",
         )
         async def faker(interaction: discord.Interaction) -> None:
             if interaction.guild_id is None:
@@ -306,7 +306,7 @@ class AuraBot(discord.Client):
             rows = await self.database.top_messages_for_year(
                 interaction.guild_id,
                 year=year,
-                limit=5,
+                limit=10,
             )
             embed = self.build_faker_embed(interaction.guild, rows, year=year)
             view = FakerRankingView(self, interaction.guild, interaction.guild_id)
@@ -428,29 +428,18 @@ class AuraBot(discord.Client):
     ) -> discord.Embed:
         embed = discord.Embed(
             title=f"Top Messages {year}",
-            description=f"Les messages qui ont le plus fait reagir le serveur en {year}.",
             color=discord.Color.blurple(),
         )
         self.apply_guild_style(embed, guild)
 
         if not rows:
-            embed.description = (
-                f"Les messages qui ont le plus fait reagir le serveur en {year}.\n\n"
-                "Aucun message classe pour le moment."
-            )
+            embed.description = "Aucun message classe pour le moment."
             return embed
 
-        total_reactions = sum(row.reaction_points for row in rows)
-        embed.add_field(name="Messages", value=f"**{len(rows)}**", inline=True)
-        embed.add_field(name="Reactions", value=f"**{total_reactions}**", inline=True)
+        ranking_text, visible_count = self.render_faker_ranking(rows)
         embed.add_field(
-            name="Record",
-            value=f"**{pluralize_reactions(rows[0].reaction_points)}**",
-            inline=True,
-        )
-        embed.add_field(
-            name="Top 5",
-            value=self.render_faker_ranking(rows),
+            name=f"Top {visible_count}",
+            value=ranking_text,
             inline=False,
         )
         embed.set_footer(text="Chaque personne ne compte qu'une fois par message.")
@@ -472,17 +461,23 @@ class AuraBot(discord.Client):
         ]
         return "\n".join(lines) or "\u200b"
 
-    def render_faker_ranking(self, rows: list[TopMessageEntry]) -> str:
+    def render_faker_ranking(self, rows: list[TopMessageEntry]) -> tuple[str, int]:
         lines: list[str] = []
-        for rank, row in enumerate(rows, start=1):
+        visible_count = 0
+        for rank, row in enumerate(rows[:10], start=1):
             jump_url = (
                 f"https://discord.com/channels/{row.guild_id}/{row.channel_id}/{row.message_id}"
             )
-            lines.append(
-                f"{medal_for_rank(rank)} {row.reaction_points} {self.reaction_emoji(rank)} <@{row.author_id}>"
-            )
-            lines.append(f"[Voir le message]({jump_url})")
-        return "\n".join(lines) or "\u200b"
+            candidate_lines = [
+                f"{medal_for_rank(rank)} {row.reaction_points} {self.reaction_emoji(rank)} <@{row.author_id}>",
+                f"[Voir]({jump_url})",
+            ]
+            candidate_text = "\n".join([*lines, *candidate_lines])
+            if len(candidate_text) > 1000:
+                break
+            lines.extend(candidate_lines)
+            visible_count = rank
+        return ("\n".join(lines) or "\u200b", visible_count)
 
     def reaction_emoji(self, rank: int) -> str:
         if rank == 1:
